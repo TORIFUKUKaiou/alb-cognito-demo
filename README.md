@@ -1,14 +1,26 @@
-# Welcome to your CDK TypeScript project
+# ALB + Cognito認証 + CloudFront 最小構成デモ
 
-This is a blank project for CDK development with TypeScript.
+## 構成
+```
+CloudFront (HTML/JS) → ブラウザ → ALB (Cognito認証) → EC2
+```
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+## デプロイ
+```bash
+cd /Users/yamauchi/repos/alb-cognito-demo
+npx cdk bootstrap  # 初回のみ
+npx cdk deploy
+```
 
-## Useful commands
+## テスト手順
+1. 出力された `AlbDns` に直接アクセス → Cognito認証（ユーザー登録/ログイン）
+2. `CloudFrontUrl` にアクセス
+3. ALB URLを入力してAPIコール
 
-* `npm run build`   compile typescript to js
-* `npm run watch`   watch for changes and compile
-* `npm run test`    perform the jest unit tests
-* `npx cdk deploy`  deploy this stack to your default AWS account/region
-* `npx cdk diff`    compare deployed stack with current state
-* `npx cdk synth`   emits the synthesized CloudFormation template
+## 3分待機テスト
+「Call API (3min)」ボタンで180秒待機テスト
+
+## 削除
+```bash
+npx cdk destroy
+```

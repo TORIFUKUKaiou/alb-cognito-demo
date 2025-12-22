@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>ALB Cognito Demo</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+    button { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; }
+    #result { margin-top: 20px; padding: 15px; background: #f0f0f0; white-space: pre-wrap; }
+    input { padding: 8px; font-size: 14px; width: 100px; }
+  </style>
+</head>
+<body>
+  <h1>ALB + Cognito Demo</h1>
+  
+  <p>ALB URL: <input type="text" id="albUrl" placeholder="http://alb-xxx.elb.amazonaws.com"></p>
+  
+  <p>Wait seconds: <input type="number" id="waitTime" value="5"></p>
+  
+  <button onclick="callApi()">Call API</button>
+  <button onclick="callApi3min()">Call API (3min)</button>
+  
+  <div id="result">結果がここに表示されます</div>
+
+  <script>
+    async function callApi() {
+      const albUrl = document.getElementById('albUrl').value;
+      const wait = document.getElementById('waitTime').value;
+      const resultDiv = document.getElementById('result');
+      
+      if (!albUrl) {
+        resultDiv.textContent = 'ALB URLを入力してください';
+        return;
+      }
+      
+      resultDiv.textContent = `Calling ${albUrl}/?wait=${wait} ...`;
+      const start = Date.now();
+      
+      try {
+        const res = await fetch(`${albUrl}/?wait=${wait}`, { credentials: 'include' });
+        const data = await res.json();
+        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+        resultDiv.textContent = `Response (${elapsed}s):\n${JSON.stringify(data, null, 2)}`;
+      } catch (e) {
+        resultDiv.textContent = `Error: ${e.message}\n\n※ ALBに直接アクセスしてCognito認証を完了してください`;
+      }
+    }
+    
+    function callApi3min() {
+      document.getElementById('waitTime').value = 180;
+      callApi();
+    }
+  </script>
+</body>
+</html>
