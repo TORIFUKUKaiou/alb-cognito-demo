@@ -74,12 +74,13 @@ export class AlbCognitoDemoStack extends cdk.Stack {
       action: elbv2.ListenerAction.forward([targetGroup]),
     });
 
-    // CloudFront → ALB (カスタムヘッダー付与)
+    // CloudFront → ALB (カスタムヘッダー付与、タイムアウト180秒)
     const albOrigin = new origins.HttpOrigin(alb.loadBalancerDnsName, {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
       customHeaders: {
         [customHeaderName]: customHeaderValue,
       },
+      readTimeout: cdk.Duration.seconds(180),
     });
 
     // CloudFront Distribution
