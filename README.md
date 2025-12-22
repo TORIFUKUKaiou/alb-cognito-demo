@@ -49,10 +49,31 @@ npx cdk deploy
 
 ## テスト手順
 
-1. `CloudFrontUrl` にアクセス
-2. Cognito Domain と Client ID を入力
-3. 「Login with Cognito」でログイン
-4. 「Call API」でAPI呼び出し
+### 1. デプロイ出力を確認
+
+デプロイ完了後、以下が出力される：
+- `CloudFrontUrl` - フロントエンドURL
+- `CognitoDomain` - Cognito認証URL
+- `UserPoolClientId` - Client ID
+- `AlbDns` - ALB URL（直接アクセス確認用）
+
+### 2. フロントエンドにアクセス
+
+`CloudFrontUrl` にブラウザでアクセス
+
+### 3. 設定入力
+
+出力された値を入力：
+- Cognito Domain: `CognitoDomain` の値
+- Client ID: `UserPoolClientId` の値
+
+### 4. ログイン
+
+「Login with Cognito」→ サインアップ（初回）→ メール認証 → ログイン
+
+### 5. API呼び出し
+
+「Call API」ボタンでEC2にリクエスト
 
 ### ALB直接アクセスの確認
 
