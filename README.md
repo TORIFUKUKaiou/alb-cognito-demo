@@ -3,7 +3,9 @@
 ## 構成
 
 ```
-CloudFront (S3) → ブラウザJS → ALB (Cognito認証) → EC2
+CloudFront (S3) → ブラウザJS → ALB → EC2 (JWT検証)
+                      ↓
+                  Cognito (トークン発行)
 ```
 
 ## 認証フロー
@@ -11,25 +13,23 @@ CloudFront (S3) → ブラウザJS → ALB (Cognito認証) → EC2
 ```mermaid
 sequenceDiagram
     participant Browser as ブラウザ
-    participant ALB
+    participant CloudFront
     participant Cognito
+    participant ALB
     participant EC2
 
-    Browser->>ALB: 1. GET /api
-    ALB->>Browser: 2. 302 Redirect to Cognito
-    Browser->>Cognito: 3. ログイン画面
-    Cognito->>Browser: 4. 302 /oauth2/idpresponse?code=xxx
-    Browser->>ALB: 5. GET /oauth2/idpresponse?code=xxx
-    ALB->>Cognito: 6. トークン交換
-    Cognito->>ALB: 7. トークン返却
-    ALB->>Browser: 8. Set-Cookie + 302 Redirect to /api
-    Browser->>ALB: 9. GET /api (Cookie付き)
-    ALB->>EC2: 10. Forward
-    EC2->>ALB: 11. Response
-    ALB->>Browser: 12. Response
+    Browser->>CloudFront: 1. フロントエンド取得
+    CloudFront->>Browser: 2. HTML/JS返却
+    Browser->>Cognito: 3. ログイン（Hosted UI）
+    Cognito->>Browser: 4. IDトークン返却（URLハッシュ）
+    Browser->>ALB: 5. API呼び出し（Authorization: Bearer token）
+    ALB->>EC2: 6. 転送
+    EC2->>EC2: 7. JWT検証
+    EC2->>ALB: 8. レスポンス
+    ALB->>Browser: 9. レスポンス
 ```
 
-※ フロントエンドJS側でトークン管理は不要。ALBがCognito認証を代行する。
+※ EC2側でCognito JWTを検証。ALBは単純転送のみ。
 
 ## デプロイ手順
 
@@ -60,38 +60,45 @@ npx cdk deploy
 
 出力例：
 - `CloudFrontUrl` - フロントエンドURL
-- `AlbDns` - API URL（Cognito認証付き）
-- `UserPoolId` - Cognito User Pool ID
+- `AlbDns` - API URL
+- `UserPoolClientId` - Cognito Client ID
+- `CognitoDomain` - Cognito認証URL
+
+### 5. CognitoにコールバックURL追加
+
+デプロイ後、Cognitoコンソールで設定が必要：
+
+1. Cognito → User pools → `alb-demo-pool` → App integration
+2. App client `WebClient` を選択
+3. Hosted UI → Edit
+4. Allowed callback URLs に `CloudFrontUrl` を追加
+   - 例: `https://d1234567890.cloudfront.net/`
+5. Save changes
 
 ## テスト手順
 
-### 1. Cognitoユーザー登録
+### 1. フロントエンドにアクセス
 
-出力された `AlbDns` に直接ブラウザでアクセス：
+`CloudFrontUrl` にブラウザでアクセス
 
-```
-http://<AlbDns>/
-```
+### 2. 設定入力
 
-→ Cognito認証画面にリダイレクトされる
-→ 「Sign up」でユーザー登録（メール認証あり）
-→ ログイン完了後、EC2からのレスポンスが表示される
+出力された値を入力：
+- Cognito Domain
+- Client ID
+- ALB URL
 
-### 2. フロントエンドからAPIコール
+### 3. ログイン
 
-`CloudFrontUrl` にアクセス：
+「Login with Cognito」ボタン → Cognito Hosted UI → サインアップ/ログイン
 
-1. ALB URLを入力欄にペースト
-2. 「Call API」ボタンでAPIコール
-3. 「Call API (3min)」で180秒待機テスト
+### 4. API呼び出し
+
+ログイン後、「Call API」ボタンでEC2にリクエスト
 
 ## 3分待機テスト
 
-ALBにはAPI Gatewayのような29秒タイムアウト制限がないため、長時間処理が可能。
-
-```
-http://<AlbDns>/?wait=180
-```
+「Call API (3min)」ボタンで180秒待機テスト。ALBにはタイムアウト制限がないため、長時間処理が可能。
 
 ## 削除
 
@@ -101,6 +108,6 @@ npx cdk destroy
 
 ## 注意事項
 
-- この構成はALB側でCognito認証を処理するパターン
-- フロントエンドJS側でのトークン管理（Amplify Auth等）は含まない
-- 本番環境ではALBにHTTPS（証明書）設定が必要
+- EC2側でJWT検証を行うパターン（ALB認証機能は未使用）
+- 本番環境ではALBにHTTPS設定推奨
+- Cognito Hosted UIのコールバックURL設定が必要
