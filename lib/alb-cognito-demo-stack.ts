@@ -13,6 +13,21 @@ export class AlbCognitoDemoStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    // S3 Bucket for Frontend (先に作成)
+    const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    // CloudFront (先に作成してURLを確定)
+    const distribution = new cloudfront.Distribution(this, 'Distribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+      defaultRootObject: 'index.html',
+    });
+
     // Cognito User Pool
     const userPool = new cognito.UserPool(this, 'UserPool', {
       userPoolName: 'alb-demo-pool',
@@ -22,11 +37,13 @@ export class AlbCognitoDemoStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // CloudFrontのURLをコールバックに設定
     const userPoolClient = userPool.addClient('WebClient', {
       authFlows: { userPassword: true, userSrp: true },
       oAuth: {
         flows: { implicitCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+        callbackUrls: [`https://${distribution.distributionDomainName}/`],
       },
     });
 
@@ -57,8 +74,7 @@ export class AlbCognitoDemoStack extends cdk.Stack {
       'dnf install -y python3 python3-pip',
       'pip3 install pyjwt cryptography requests',
       `cat > /home/ec2-user/server.py << 'EOF'
-import http.server, time, json, jwt, requests, os
-from urllib.request import urlopen
+import http.server, time, json, jwt, requests
 
 REGION = "${cdk.Aws.REGION}"
 USER_POOL_ID = "${userPool.userPoolId}"
@@ -137,21 +153,6 @@ EOF`,
     alb.addListener('HttpListener', {
       port: 80,
       defaultAction: elbv2.ListenerAction.forward([targetGroup]),
-    });
-
-    // S3 Bucket for Frontend
-    const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-    });
-
-    // CloudFront
-    const distribution = new cloudfront.Distribution(this, 'Distribution', {
-      defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-      },
-      defaultRootObject: 'index.html',
     });
 
     // Deploy frontend HTML

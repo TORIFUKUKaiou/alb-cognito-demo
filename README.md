@@ -64,16 +64,9 @@ npx cdk deploy
 - `UserPoolClientId` - Cognito Client ID
 - `CognitoDomain` - Cognito認証URL
 
-### 5. CognitoにコールバックURL追加
+### 5. 完了
 
-デプロイ後、Cognitoコンソールで設定が必要：
-
-1. Cognito → User pools → `alb-demo-pool` → App integration
-2. App client `WebClient` を選択
-3. Hosted UI → Edit
-4. Allowed callback URLs に `CloudFrontUrl` を追加
-   - 例: `https://d1234567890.cloudfront.net/`
-5. Save changes
+コンソール操作不要。CDKがすべて設定します。
 
 ## テスト手順
 
