@@ -3,10 +3,17 @@
 ## 構成
 
 ```
-CloudFront (S3) → ブラウザJS → ALB → EC2 (JWT検証)
-                      ↓
-                  Cognito (トークン発行)
+CloudFront ─┬→ / (S3: フロントエンド)
+            └→ /api/* (ALB → EC2)
+                 ↓
+            カスタムヘッダー検証
 ```
+
+## セキュリティ
+
+1. **CloudFront → ALB**: カスタムヘッダー（`X-Custom-Secret`）で検証
+   - ALBに直接アクセスしても403 Forbidden
+2. **EC2**: JWT検証（Cognitoトークン必須）
 
 ## 認証フロー
 
@@ -18,89 +25,50 @@ sequenceDiagram
     participant ALB
     participant EC2
 
-    Browser->>CloudFront: 1. フロントエンド取得
+    Browser->>CloudFront: 1. GET / (フロントエンド)
     CloudFront->>Browser: 2. HTML/JS返却
     Browser->>Cognito: 3. ログイン（Hosted UI）
-    Cognito->>Browser: 4. IDトークン返却（URLハッシュ）
-    Browser->>ALB: 5. API呼び出し（Authorization: Bearer token）
-    ALB->>EC2: 6. 転送
-    EC2->>EC2: 7. JWT検証
-    EC2->>ALB: 8. レスポンス
-    ALB->>Browser: 9. レスポンス
+    Cognito->>Browser: 4. IDトークン返却
+    Browser->>CloudFront: 5. GET /api/?wait=5 (Authorization: Bearer token)
+    CloudFront->>ALB: 6. 転送 + X-Custom-Secret ヘッダー付与
+    ALB->>ALB: 7. ヘッダー検証
+    ALB->>EC2: 8. 転送
+    EC2->>EC2: 9. JWT検証
+    EC2->>Browser: 10. レスポンス
 ```
 
-※ EC2側でCognito JWTを検証。ALBは単純転送のみ。
-
 ## デプロイ手順
-
-### 1. CloudShellでクローン
 
 ```bash
 git clone https://github.com/TORIFUKUKaiou/alb-cognito-demo.git
 cd alb-cognito-demo
-```
-
-### 2. 依存関係インストール
-
-```bash
 npm install
-```
-
-### 3. CDK Bootstrap（初回のみ）
-
-```bash
-npx cdk bootstrap
-```
-
-### 4. デプロイ
-
-```bash
+npx cdk bootstrap  # 初回のみ
 npx cdk deploy
 ```
 
-出力例：
-- `CloudFrontUrl` - フロントエンドURL
-- `AlbDns` - API URL
-- `UserPoolClientId` - Cognito Client ID
-- `CognitoDomain` - Cognito認証URL
-
-### 5. 完了
-
-コンソール操作不要。CDKがすべて設定します。
-
 ## テスト手順
 
-### 1. フロントエンドにアクセス
+1. `CloudFrontUrl` にアクセス
+2. Cognito Domain と Client ID を入力
+3. 「Login with Cognito」でログイン
+4. 「Call API」でAPI呼び出し
 
-`CloudFrontUrl` にブラウザでアクセス
+### ALB直接アクセスの確認
 
-### 2. 設定入力
+```bash
+curl http://<AlbDns>/
+# → {"error": "Forbidden"} (403)
+```
 
-出力された値を入力：
-- Cognito Domain
-- Client ID
-- ALB URL
-
-### 3. ログイン
-
-「Login with Cognito」ボタン → Cognito Hosted UI → サインアップ/ログイン
-
-### 4. API呼び出し
-
-ログイン後、「Call API」ボタンでEC2にリクエスト
+CloudFront経由でないとアクセス不可。
 
 ## 3分待機テスト
 
-「Call API (3min)」ボタンで180秒待機テスト。ALBにはタイムアウト制限がないため、長時間処理が可能。
+「Call API (3min)」ボタンで180秒待機テスト。
 
 ## 削除
 
 ```bash
 npx cdk destroy
 ```
-
-## 注意事項
-
-- EC2側でJWT検証を行うパターン（ALB認証機能は未使用）
-- 本番環境ではALBにHTTPS設定推奨
-- Cognito Hosted UIのコールバックURL設定が必要

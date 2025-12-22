@@ -21,8 +21,6 @@
     <input type="text" id="cognitoDomain" placeholder="https://alb-demo-xxx.auth.us-east-1.amazoncognito.com">
     <label>Client ID:</label>
     <input type="text" id="clientId" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxx">
-    <label>ALB URL:</label>
-    <input type="text" id="albUrl" placeholder="http://alb-xxx.elb.amazonaws.com">
   </div>
 
   <div class="section">
@@ -33,7 +31,7 @@
   </div>
 
   <div class="section">
-    <h3>3. API呼び出し</h3>
+    <h3>3. API呼び出し（CloudFront経由）</h3>
     <label>Wait seconds:</label>
     <input type="number" id="waitTime" value="5" style="width:100px">
     <br>
@@ -46,7 +44,6 @@
   <script>
     let idToken = null;
 
-    // URLハッシュからトークン取得（Cognito Hosted UIからのリダイレクト後）
     window.onload = function() {
       const hash = window.location.hash.substring(1);
       const params = new URLSearchParams(hash);
@@ -60,7 +57,7 @@
     function login() {
       const domain = document.getElementById('cognitoDomain').value;
       const clientId = document.getElementById('clientId').value;
-      const redirectUri = window.location.origin + window.location.pathname;
+      const redirectUri = window.location.origin + '/';
       
       if (!domain || !clientId) {
         alert('Cognito DomainとClient IDを入力してください');
@@ -78,24 +75,21 @@
     }
 
     async function callApi() {
-      const albUrl = document.getElementById('albUrl').value;
       const wait = document.getElementById('waitTime').value;
       const resultDiv = document.getElementById('result');
       
-      if (!albUrl) {
-        resultDiv.textContent = 'ALB URLを入力してください';
-        return;
-      }
       if (!idToken) {
         resultDiv.textContent = '先にログインしてください';
         return;
       }
       
-      resultDiv.textContent = `Calling ${albUrl}/?wait=${wait} ...`;
+      // CloudFront経由でAPI呼び出し（同一オリジン）
+      const apiUrl = `/api/?wait=${wait}`;
+      resultDiv.textContent = `Calling ${apiUrl} ...`;
       const start = Date.now();
       
       try {
-        const res = await fetch(`${albUrl}/?wait=${wait}`, {
+        const res = await fetch(apiUrl, {
           headers: { 'Authorization': `Bearer ${idToken}` }
         });
         const data = await res.json();

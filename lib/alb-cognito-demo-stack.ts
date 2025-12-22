@@ -13,42 +13,14 @@ export class AlbCognitoDemoStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // S3 Bucket for Frontend (先に作成)
+    // カスタムヘッダーの秘密値（本番ではSecrets Manager推奨）
+    const customHeaderName = 'X-Custom-Secret';
+    const customHeaderValue = 'my-secret-value-12345';
+
+    // S3 Bucket for Frontend
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
-    });
-
-    // CloudFront (先に作成してURLを確定)
-    const distribution = new cloudfront.Distribution(this, 'Distribution', {
-      defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-      },
-      defaultRootObject: 'index.html',
-    });
-
-    // Cognito User Pool
-    const userPool = new cognito.UserPool(this, 'UserPool', {
-      userPoolName: 'alb-demo-pool',
-      selfSignUpEnabled: true,
-      signInAliases: { email: true },
-      autoVerify: { email: true },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
-
-    // CloudFrontのURLをコールバックに設定
-    const userPoolClient = userPool.addClient('WebClient', {
-      authFlows: { userPassword: true, userSrp: true },
-      oAuth: {
-        flows: { implicitCodeGrant: true },
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
-        callbackUrls: [`https://${distribution.distributionDomainName}/`],
-      },
-    });
-
-    const userPoolDomain = userPool.addDomain('Domain', {
-      cognitoDomain: { domainPrefix: `alb-demo-${cdk.Aws.ACCOUNT_ID}` },
     });
 
     // VPC
@@ -67,6 +39,87 @@ export class AlbCognitoDemoStack extends cdk.Stack {
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
       machineImage: ec2.MachineImage.latestAmazonLinux2023(),
       associatePublicIpAddress: true,
+    });
+
+    // ALB
+    const alb = new elbv2.ApplicationLoadBalancer(this, 'ALB', {
+      vpc,
+      internetFacing: true,
+    });
+
+    instance.connections.allowFrom(alb, ec2.Port.tcp(8080));
+
+    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'TG', {
+      vpc,
+      port: 8080,
+      targets: [new elbv2Targets.InstanceTarget(instance)],
+      healthCheck: { path: '/', healthyHttpCodes: '200,401,403', interval: cdk.Duration.seconds(30) },
+    });
+
+    // ALB Listener with header validation
+    const listener = alb.addListener('HttpListener', {
+      port: 80,
+      defaultAction: elbv2.ListenerAction.fixedResponse(403, {
+        contentType: 'application/json',
+        messageBody: '{"error": "Forbidden"}',
+      }),
+    });
+
+    // カスタムヘッダーがある場合のみ転送
+    listener.addAction('ForwardWithHeader', {
+      priority: 1,
+      conditions: [
+        elbv2.ListenerCondition.httpHeader(customHeaderName, [customHeaderValue]),
+      ],
+      action: elbv2.ListenerAction.forward([targetGroup]),
+    });
+
+    // CloudFront → ALB (カスタムヘッダー付与)
+    const albOrigin = new origins.HttpOrigin(alb.loadBalancerDnsName, {
+      protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+      customHeaders: {
+        [customHeaderName]: customHeaderValue,
+      },
+    });
+
+    // CloudFront Distribution
+    const distribution = new cloudfront.Distribution(this, 'Distribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+      additionalBehaviors: {
+        '/api/*': {
+          origin: albOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        },
+      },
+      defaultRootObject: 'index.html',
+    });
+
+    // Cognito User Pool
+    const userPool = new cognito.UserPool(this, 'UserPool', {
+      userPoolName: 'alb-demo-pool',
+      selfSignUpEnabled: true,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const userPoolClient = userPool.addClient('WebClient', {
+      authFlows: { userPassword: true, userSrp: true },
+      oAuth: {
+        flows: { implicitCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+        callbackUrls: [`https://${distribution.distributionDomainName}/`],
+      },
+    });
+
+    const userPoolDomain = userPool.addDomain('Domain', {
+      cognitoDomain: { domainPrefix: `alb-demo-${cdk.Aws.ACCOUNT_ID}` },
     });
 
     // Python server with JWT validation
@@ -135,26 +188,6 @@ EOF`,
       'python3 /home/ec2-user/server.py &',
     );
 
-    // ALB (認証なし、単純転送)
-    const alb = new elbv2.ApplicationLoadBalancer(this, 'ALB', {
-      vpc,
-      internetFacing: true,
-    });
-
-    instance.connections.allowFrom(alb, ec2.Port.tcp(8080));
-
-    const targetGroup = new elbv2.ApplicationTargetGroup(this, 'TG', {
-      vpc,
-      port: 8080,
-      targets: [new elbv2Targets.InstanceTarget(instance)],
-      healthCheck: { path: '/', healthyHttpCodes: '200,401', interval: cdk.Duration.seconds(30) },
-    });
-
-    alb.addListener('HttpListener', {
-      port: 80,
-      defaultAction: elbv2.ListenerAction.forward([targetGroup]),
-    });
-
     // Deploy frontend HTML
     new s3deploy.BucketDeployment(this, 'DeployFrontend', {
       sources: [s3deploy.Source.asset('./frontend')],
@@ -165,8 +198,8 @@ EOF`,
 
     // Outputs
     new cdk.CfnOutput(this, 'CloudFrontUrl', { value: `https://${distribution.distributionDomainName}` });
+    new cdk.CfnOutput(this, 'ApiEndpoint', { value: `https://${distribution.distributionDomainName}/api/` });
     new cdk.CfnOutput(this, 'AlbDns', { value: `http://${alb.loadBalancerDnsName}` });
-    new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
     new cdk.CfnOutput(this, 'CognitoDomain', { value: `https://${userPoolDomain.domainName}.auth.${cdk.Aws.REGION}.amazoncognito.com` });
   }
