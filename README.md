@@ -8,13 +8,25 @@ CloudFront (S3) → ブラウザJS → ALB (Cognito認証) → EC2
 
 ## 認証フロー
 
-```
-1. ブラウザ → ALBにアクセス
-2. ALB → Cognito認証画面にリダイレクト
-3. ユーザー → ログイン/サインアップ
-4. Cognito → ALBにコールバック（認証コード付き）
-5. ALB → セッションCookie発行
-6. 以降のリクエスト → Cookieで認証（JSからはcredentials: 'include'で送信）
+```mermaid
+sequenceDiagram
+    participant Browser as ブラウザ
+    participant ALB
+    participant Cognito
+    participant EC2
+
+    Browser->>ALB: 1. GET /api
+    ALB->>Browser: 2. 302 Redirect to Cognito
+    Browser->>Cognito: 3. ログイン画面
+    Cognito->>Browser: 4. 302 /oauth2/idpresponse?code=xxx
+    Browser->>ALB: 5. GET /oauth2/idpresponse?code=xxx
+    ALB->>Cognito: 6. トークン交換
+    Cognito->>ALB: 7. トークン返却
+    ALB->>Browser: 8. Set-Cookie + 302 Redirect to /api
+    Browser->>ALB: 9. GET /api (Cookie付き)
+    ALB->>EC2: 10. Forward
+    EC2->>ALB: 11. Response
+    ALB->>Browser: 12. Response
 ```
 
 ※ フロントエンドJS側でトークン管理は不要。ALBがCognito認証を代行する。
