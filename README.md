@@ -31,10 +31,10 @@ sequenceDiagram
     Cognito->>Browser: 4. IDトークン返却
     Browser->>CloudFront: 5. GET /api/?wait=5 (Authorization: Bearer token)
     CloudFront->>ALB: 6. 転送 + X-Custom-Secret ヘッダー付与
-    ALB->>ALB: 7. ヘッダー検証
-    ALB->>EC2: 8. 転送
-    EC2->>EC2: 9. JWT検証
-    EC2->>Browser: 10. レスポンス
+    ALB->>EC2: 7. ヘッダー検証OK → 転送
+    EC2->>ALB: 8. JWT検証 → レスポンス
+    ALB->>CloudFront: 9. レスポンス
+    CloudFront->>Browser: 10. レスポンス
 ```
 
 ## デプロイ手順
