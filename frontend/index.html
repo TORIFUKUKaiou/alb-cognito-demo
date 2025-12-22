@@ -4,25 +4,79 @@
   <meta charset="UTF-8">
   <title>ALB Cognito Demo</title>
   <style>
-    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+    body { font-family: sans-serif; max-width: 700px; margin: 50px auto; padding: 20px; }
     button { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; }
-    #result { margin-top: 20px; padding: 15px; background: #f0f0f0; white-space: pre-wrap; }
-    input { padding: 8px; font-size: 14px; width: 100px; }
+    #result { margin-top: 20px; padding: 15px; background: #f0f0f0; white-space: pre-wrap; min-height: 100px; }
+    input { padding: 8px; font-size: 14px; width: 300px; margin: 5px 0; }
+    label { display: block; margin-top: 10px; }
+    .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; }
   </style>
 </head>
 <body>
   <h1>ALB + Cognito Demo</h1>
   
-  <p>ALB URL: <input type="text" id="albUrl" placeholder="http://alb-xxx.elb.amazonaws.com"></p>
-  
-  <p>Wait seconds: <input type="number" id="waitTime" value="5"></p>
-  
-  <button onclick="callApi()">Call API</button>
-  <button onclick="callApi3min()">Call API (3min)</button>
-  
+  <div class="section">
+    <h3>1. 設定</h3>
+    <label>Cognito Domain:</label>
+    <input type="text" id="cognitoDomain" placeholder="https://alb-demo-xxx.auth.us-east-1.amazoncognito.com">
+    <label>Client ID:</label>
+    <input type="text" id="clientId" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxx">
+    <label>ALB URL:</label>
+    <input type="text" id="albUrl" placeholder="http://alb-xxx.elb.amazonaws.com">
+  </div>
+
+  <div class="section">
+    <h3>2. 認証</h3>
+    <button onclick="login()">Login with Cognito</button>
+    <button onclick="logout()">Logout</button>
+    <p>Token: <span id="tokenStatus">なし</span></p>
+  </div>
+
+  <div class="section">
+    <h3>3. API呼び出し</h3>
+    <label>Wait seconds:</label>
+    <input type="number" id="waitTime" value="5" style="width:100px">
+    <br>
+    <button onclick="callApi()">Call API</button>
+    <button onclick="callApi3min()">Call API (3min)</button>
+  </div>
+
   <div id="result">結果がここに表示されます</div>
 
   <script>
+    let idToken = null;
+
+    // URLハッシュからトークン取得（Cognito Hosted UIからのリダイレクト後）
+    window.onload = function() {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      if (params.get('id_token')) {
+        idToken = params.get('id_token');
+        document.getElementById('tokenStatus').textContent = '取得済み ✓';
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
+    function login() {
+      const domain = document.getElementById('cognitoDomain').value;
+      const clientId = document.getElementById('clientId').value;
+      const redirectUri = window.location.origin + window.location.pathname;
+      
+      if (!domain || !clientId) {
+        alert('Cognito DomainとClient IDを入力してください');
+        return;
+      }
+      
+      const url = `${domain}/login?client_id=${clientId}&response_type=token&scope=openid+email&redirect_uri=${encodeURIComponent(redirectUri)}`;
+      window.location.href = url;
+    }
+
+    function logout() {
+      idToken = null;
+      document.getElementById('tokenStatus').textContent = 'なし';
+      document.getElementById('result').textContent = 'ログアウトしました';
+    }
+
     async function callApi() {
       const albUrl = document.getElementById('albUrl').value;
       const wait = document.getElementById('waitTime').value;
@@ -32,17 +86,23 @@
         resultDiv.textContent = 'ALB URLを入力してください';
         return;
       }
+      if (!idToken) {
+        resultDiv.textContent = '先にログインしてください';
+        return;
+      }
       
       resultDiv.textContent = `Calling ${albUrl}/?wait=${wait} ...`;
       const start = Date.now();
       
       try {
-        const res = await fetch(`${albUrl}/?wait=${wait}`, { credentials: 'include' });
+        const res = await fetch(`${albUrl}/?wait=${wait}`, {
+          headers: { 'Authorization': `Bearer ${idToken}` }
+        });
         const data = await res.json();
         const elapsed = ((Date.now() - start) / 1000).toFixed(1);
         resultDiv.textContent = `Response (${elapsed}s):\n${JSON.stringify(data, null, 2)}`;
       } catch (e) {
-        resultDiv.textContent = `Error: ${e.message}\n\n※ ALBに直接アクセスしてCognito認証を完了してください`;
+        resultDiv.textContent = `Error: ${e.message}`;
       }
     }
     
