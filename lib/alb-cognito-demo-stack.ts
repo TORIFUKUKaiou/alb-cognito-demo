@@ -80,7 +80,7 @@ export class AlbCognitoDemoStack extends cdk.Stack {
       customHeaders: {
         [customHeaderName]: customHeaderValue,
       },
-      readTimeout: cdk.Duration.seconds(180),
+      readTimeout: cdk.Duration.seconds(60),
     });
 
     // CloudFront Distribution
